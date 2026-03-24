@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
- <link rel="icon" type="image/png" href="/icon.png" />
+  <link rel="icon" type="image/png" href="/icon.png" />
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>BB2 Mini — A/B Test Tracker</title>
@@ -60,7 +60,25 @@
   .header-title { display: flex; flex-direction: column; justify-content: center; }
   .header-title h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em; background: linear-gradient(110deg, #eeedf5 0%, #a0b4e0 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; line-height: 1.1; }
   .header-title p { font-size: 0.72rem; color: var(--text2); font-family: 'DM Mono', monospace; margin-top: 4px; }
-  .header-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .music-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: transparent; border: 1px solid var(--border2);
+    border-radius: 20px; padding: 5px 14px 5px 8px;
+    cursor: pointer; transition: border-color 0.25s, box-shadow 0.25s, color 0.25s;
+    color: var(--text2); font-family: 'DM Mono', monospace; font-size: 0.68rem;
+  }
+  .music-btn:hover { border-color: var(--neon-border); box-shadow: 0 0 12px var(--neon-glow); color: var(--neon); }
+  .music-btn.playing { border-color: var(--neon-border); color: var(--neon); box-shadow: 0 0 14px var(--neon-glow); }
+  .music-icon { width: 22px; height: 22px; border-radius: 50%; border: 1px solid currentColor; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .play-tri { width:0; height:0; border-style:solid; border-width:4px 0 4px 7px; border-color:transparent transparent transparent currentColor; margin-left:1px; }
+  .pause-bars { display:none; gap:2px; align-items:center; }
+  .pause-bar  { width:2px; height:8px; background:currentColor; border-radius:1px; }
+  .music-btn.playing .play-tri  { display:none; }
+  .music-btn.playing .pause-bars { display:flex; }
+  @keyframes barBounce { 0%,100%{transform:scaleY(1);} 50%{transform:scaleY(0.35);} }
+  .music-btn.playing .pause-bar:nth-child(1) { animation: barBounce 0.65s ease-in-out infinite; }
+  .music-btn.playing .pause-bar:nth-child(2) { animation: barBounce 0.65s ease-in-out infinite 0.22s; }
   .live-badge {
     display: inline-flex; align-items: center; gap: 8px;
     font-size: 0.7rem; font-weight: 500; font-family: 'DM Mono', monospace;
@@ -286,8 +304,16 @@
     </div>
   </div>
   <div class="header-right">
+    <button class="music-btn" id="music-btn" onclick="toggleMusic()">
+      <span class="music-icon">
+        <span class="play-tri"></span>
+        <span class="pause-bars"><span class="pause-bar"></span><span class="pause-bar"></span></span>
+      </span>
+      <span id="music-label">Play</span>
+    </button>
     <div class="live-badge"><span class="live-dot"></span>Live tracking</div>
   </div>
+  <audio id="bg-audio" src="music.mp3" loop preload="none"></audio>
   </header>
 
   <!-- Upload -->
@@ -529,6 +555,20 @@ uz.addEventListener('drop',e=>{
   const file=e.dataTransfer.files[0];
   if(file){const dt=new DataTransfer();dt.items.add(file);document.getElementById('csv-input').files=dt.files;document.getElementById('csv-input').dispatchEvent(new Event('change'));}
 });
+function toggleMusic(){
+  const audio=document.getElementById('bg-audio');
+  const btn=document.getElementById('music-btn');
+  const label=document.getElementById('music-label');
+  if(audio.paused){
+    audio.play().catch(()=>{});
+    btn.classList.add('playing');
+    label.textContent='Pause';
+  } else {
+    audio.pause();
+    btn.classList.remove('playing');
+    label.textContent='Play';
+  }
+}
 </script>
 </body>
 </html>
