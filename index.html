@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="icon" type="image/png" href="/icon.png" />
+      <link rel="icon" type="image/png" href="/icon.png" />
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>BB2 Mini — A/B Test Tracker</title>
@@ -443,6 +443,7 @@ header {
 <script>
 // ── Constants ──────────────────────────────────────────────────────────────
 const SUB_SKUS = ['BN24FAMCAA'];
+const SUB_PATTERNS = ['BN24FAMCAA'];
 const FEEDER_SKUS = new Set([
   'BBG1003BAD-T','BWH1025BAB-T','BBS4082AAA','BWH1023BAB-T','BWH1026BAA-T',
   'BBG1002BAD-T','BWH1023BAA','BWH1025BAA','BBS4073AAA',
@@ -531,8 +532,8 @@ function skuName(raw) {
   return n.length > 42 ? n.slice(0,40) + '…' : (n || code);
 }
 function isSub(item) {
-  const c = skuCode(item).toUpperCase().replace(/-/g,'');
-  return SUB_SKUS.some(s => c.includes(s.replace(/-/g,'')));
+  const code = skuCode(item).toUpperCase().replace(/-/g,'');
+  return SUB_SKUS.some(s => code === s.replace(/-/g,''));
 }
 function isFeeder(item) { return FEEDER_SKUS.has(skuCode(item).toUpperCase()); }
 
@@ -556,27 +557,27 @@ let state = { a: [], b: [] };
 
 // ── Deduplication ──────────────────────────────────────────────────────────
 function deduplicate(rows, eC, iC, tC, sC, vC, tsC, pC, oC, srcC, medC, campC) {
-  const seenEmail = new Set(), seenIP = new Set();
+  const seenA = new Set(), seenB = new Set();
   const a = [], b = [];
   const sorted = [...rows].sort((x, y) => (x[tsC] || '').localeCompare(y[tsC] || ''));
   for (const r of sorted) {
-    const email  = (r[eC]  || '').toLowerCase().trim();
-    const ip     = (r[iC]  || '').trim();
-    const ver    = (r[vC]  || '').toLowerCase().trim();
+    const email = (r[eC] || '').toLowerCase().trim();
+    const ver   = (r[vC] || '').toLowerCase().trim();
     if (!ver || (ver !== 'a' && ver !== 'b')) continue;
-    const eNew = email && !seenEmail.has(email);
-    const iNew = ip    && !seenIP.has(ip);
-    if (!eNew && !iNew && (email || ip)) continue;
-    if (email) seenEmail.add(email);
-    if (ip)    seenIP.add(ip);
-    const total      = parseFloat(r[tC]) || 0;
-    const skus       = extractSkus(r[sC]);
-    const totalUnits = skus.reduce((s, sk) => s + skuQty(sk), 0);
+    // Deduplicate by email only (per version bucket)
+    if (email) {
+      const seen = ver === 'a' ? seenA : seenB;
+      if (seen.has(email)) continue;
+      seen.add(email);
+    }
+    const total       = parseFloat(r[tC]) || 0;
+    const skus        = extractSkus(r[sC]);
+    const totalUnits  = skus.reduce((s, sk) => s + (isSub(sk) ? 1 : skuQty(sk)), 0);
     const feederUnits = skus.filter(s => isFeeder(s)).reduce((s, sk) => s + skuQty(sk), 0);
-    const hasSub     = skus.some(s => isSub(s));
-    const hasFeeder  = feederUnits > 0;
+    const hasSub      = skus.some(s => isSub(s));
+    const hasFeeder   = feederUnits > 0;
     const orderStatus = (r[oC] || '').toLowerCase().trim();
-    const channel    = getChannel(r, srcC, medC, campC);
+    const channel     = getChannel(r, srcC, medC, campC);
     const entry = { ts: r[tsC] || '', email, total, skus, totalUnits, feederUnits, hasSub, hasFeeder, payment: r[pC] || '', orderStatus, channel };
     if (ver === 'a') a.push(entry); else b.push(entry);
   }
@@ -586,19 +587,21 @@ function deduplicate(rows, eC, iC, tC, sC, vC, tsC, pC, oC, srcC, medC, campC) {
 // ── Metrics calculation ────────────────────────────────────────────────────
 function calcMetrics(orders) {
   if (!orders.length) return null;
-  const rev          = orders.reduce((s, o) => s + o.total, 0);
-  const feederUnits  = orders.reduce((s, o) => s + o.feederUnits, 0);
-  const rpu          = feederUnits > 0 ? rev / feederUnits : 0;
-  const aov          = rev / orders.length;
-  const withFeeder   = orders.filter(o => o.hasFeeder);
-  const subN         = withFeeder.filter(o => o.hasSub).length;
-  const subBase      = withFeeder.length;
-  const subRate      = subBase > 0 ? (subN / subBase) * 100 : 0;
+  const rev         = orders.reduce((s, o) => s + o.total, 0);
+  const feederUnits = orders.reduce((s, o) => s + o.feederUnits, 0);
+  const rpu         = feederUnits > 0 ? rev / feederUnits : 0;
+  const aov         = rev / orders.length;
+  // Sub attach rate = subs sold / total feeder units
+// e.g. 1 order with 2 feeders + 1 sub = 1 sub / 2 feeder units = 50%
+  const subN        = orders.filter(o => o.hasSub).length;
+  const subBase     = orders.reduce((s, o) => s + o.feederUnits, 0);
+  const subRate     = subBase > 0 ? (subN / subBase) * 100 : 0;
   // SKU map
   const skuMap = {};
   for (const o of orders) {
     for (const s of o.skus) {
-      const n = skuName(s), q = skuQty(s);
+      const n = skuName(s);
+      const q = isSub(s) ? 1 : skuQty(s);  // sub always counts as 1
       skuMap[n] = (skuMap[n] || 0) + q;
     }
   }
@@ -677,7 +680,7 @@ function renderVer(ver, vis) {
     document.getElementById(p+'-cvr-sub').textContent = 'enter visitors above';
   }
   setV(p+'-sub', m.subRate.toFixed(1) + '%', g);
-  document.getElementById(p+'-sub-sub').textContent = m.subN + ' of ' + m.subBase + ' orders with feeder';
+  document.getElementById(p+'-sub-sub').textContent = m.subN + ' subs / ' + m.subBase + ' feeder units';
   setV(p+'-aov', '$' + m.aov.toFixed(2), g);
   document.getElementById(p+'-aov-sub').textContent = 'average order value';
   renderSkuTable(m.skuList, ver === 'a' ? 'bar-a' : 'bar-b', skuWrap);
@@ -785,7 +788,7 @@ function renderOrders() {
   const chColors = { google:'#4285f4', meta:'#1877f2', organic:'#4fd49a', email:'#f0c060' };
   tbody.innerHTML = filtered.map(o => {
     const badge = o.ver === 'a' ? '<span class="badge-a">A</span>' : '<span class="badge-b">B</span>';
-    const items = o.skus.map(s => skuName(s) + ' \xd7' + skuQty(s)).join(', ');
+    const items = o.skus.map(s => skuName(s) + ' \xd7' + (isSub(s) ? 1 : skuQty(s))).join(', ');
     const em    = o.email.length > 28 ? o.email.slice(0, 26) + '…' : o.email;
     const sub   = o.hasSub ? '<span class="sub-yes">✓ yes</span>' : '<span class="sub-no">no</span>';
     const ord   = o.orderStatus === 'yes' ? '<span class="ord-yes">✓ yes</span>' : o.orderStatus === 'no' ? '<span class="ord-no">no</span>' : '<span class="sub-no">—</span>';
